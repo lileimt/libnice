@@ -83,7 +83,6 @@ struct _StunTransaction
 
 struct _CandidateCheckPair
 {
-  NiceAgent *agent;         /* back pointer to owner */
   guint stream_id;
   guint component_id;
   NiceCandidate *local;
@@ -112,13 +111,15 @@ int conn_check_send (NiceAgent *agent, CandidateCheckPair *pair);
 void conn_check_prune_stream (NiceAgent *agent, NiceStream *stream);
 gboolean conn_check_handle_inbound_stun (NiceAgent *agent, NiceStream *stream, NiceComponent *component, NiceSocket *udp_socket, const NiceAddress *from, gchar *buf, guint len);
 gint conn_check_compare (const CandidateCheckPair *a, const CandidateCheckPair *b);
+void conn_check_remote_candidates_set(NiceAgent *agent, NiceStream *stream, NiceComponent *component);
 void conn_check_remote_credentials_set(NiceAgent *agent, NiceStream *stream);
 NiceCandidateTransport conn_check_match_transport (NiceCandidateTransport transport);
 void
 conn_check_prune_socket (NiceAgent *agent, NiceStream *stream, NiceComponent *component,
     NiceSocket *sock);
 
-guint32 ensure_unique_priority (NiceComponent *component, guint32 priority);
+guint32 ensure_unique_priority (NiceStream *stream, NiceComponent *component,
+    guint32 priority);
 void recalculate_pair_priorities (NiceAgent *agent);
 
 #endif /*_NICE_CONNCHECK_H */

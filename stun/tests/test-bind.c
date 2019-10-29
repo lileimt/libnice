@@ -50,7 +50,6 @@
 #include <ws2tcpip.h>
 
 #define MSG_DONTWAIT 0
-#define MSG_NOSIGNAL 0
 
 #define alarm(...)
 #define close closesocket
@@ -65,6 +64,9 @@
 #undef NDEBUG /* ensure assertions are built-in */
 #include <assert.h>
 
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
 
 static int listen_dgram (void)
 {
@@ -155,6 +157,7 @@ static void big_srv_addr (void)
 }
 
 
+#ifdef HAVE_POLL
 /** Timeout test */
 static void timeout (void)
 {
@@ -176,6 +179,7 @@ static void timeout (void)
 
   close (servfd);
 }
+#endif
 
 /** Malformed responses test */
 static void bad_responses (void)

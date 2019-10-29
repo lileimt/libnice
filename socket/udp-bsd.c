@@ -71,6 +71,9 @@ static void socket_set_writable_callback (NiceSocket *sock,
 
 struct UdpBsdSocketPrivate
 {
+  GMutex mutex;
+
+  /* protected by mutex */
   NiceAddress niceaddr;
   GSocketAddress *gaddr;
 };
@@ -157,6 +160,8 @@ nice_udp_bsd_socket_new (NiceAddress *addr)
   sock->set_writable_callback = socket_set_writable_callback;
   sock->close = socket_close;
 
+  g_mutex_init (&priv->mutex);
+
   return sock;
 }
 
@@ -165,8 +170,8 @@ socket_close (NiceSocket *sock)
 {
   struct UdpBsdSocketPrivate *priv = sock->priv;
 
-  if (priv->gaddr)
-    g_object_unref (priv->gaddr);
+  g_clear_object (&priv->gaddr);
+  g_mutex_clear (&priv->mutex);
   g_slice_free (struct UdpBsdSocketPrivate, sock->priv);
   sock->priv = NULL;
 
@@ -201,19 +206,21 @@ socket_recv_messages (NiceSocket *sock,
         recv_message->buffers, recv_message->n_buffers, NULL, NULL,
         &flags, NULL, &gerr);
 
-    recv_message->length = MAX (recvd, 0);
-
     if (recvd < 0) {
       /* Handle ECONNRESET here as if it were EWOULDBLOCK; see
        * https://phabricator.freedesktop.org/T121 */
       if (g_error_matches (gerr, G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK) ||
           g_error_matches (gerr, G_IO_ERROR, G_IO_ERROR_CONNECTION_CLOSED))
         recvd = 0;
+      else if (g_error_matches (gerr, G_IO_ERROR, G_IO_ERROR_MESSAGE_TOO_LARGE))
+        recvd = input_message_get_size (recv_message);
       else
         error = TRUE;
 
       g_error_free (gerr);
     }
+
+    recv_message->length = MAX (recvd, 0);
 
     if (recvd > 0 && recv_message->from != NULL && gaddr != NULL) {
       union {
@@ -247,44 +254,76 @@ socket_send_message (NiceSocket *sock, const NiceAddress *to,
   struct UdpBsdSocketPrivate *priv = sock->priv;
   GError *child_error = NULL;
   gssize len;
+  GSocketAddress *gaddr = NULL;
 
   /* Make sure socket has not been freed: */
   g_assert (sock->priv != NULL);
 
+  g_mutex_lock (&priv->mutex);
   if (!nice_address_is_valid (&priv->niceaddr) ||
       !nice_address_equal (&priv->niceaddr, to)) {
     union {
       struct sockaddr_storage storage;
       struct sockaddr addr;
     } sa;
-    GSocketAddress *gaddr;
 
-    if (priv->gaddr)
-      g_object_unref (priv->gaddr);
+    g_clear_object (&priv->gaddr);
 
     nice_address_copy_to_sockaddr (to, &sa.addr);
     gaddr = g_socket_address_new_from_native (&sa.addr, sizeof(sa));
-    priv->gaddr = gaddr;
+    if (gaddr)
+      priv->gaddr = g_object_ref (gaddr);
 
-    if (gaddr == NULL)
+    if (gaddr == NULL) {
+      g_mutex_unlock (&priv->mutex);
       return -1;
+    }
 
     priv->niceaddr = *to;
+  } else {
+    if (priv->gaddr)
+      gaddr = g_object_ref (priv->gaddr);
   }
+  g_mutex_unlock (&priv->mutex);
 
-  len = g_socket_send_message (sock->fileno, priv->gaddr, message->buffers,
+  len = g_socket_send_message (sock->fileno, gaddr, message->buffers,
       message->n_buffers, NULL, 0, G_SOCKET_MSG_NONE, NULL, &child_error);
 
   if (len < 0) {
     if (g_error_matches (child_error, G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK)) {
       len = 0;
-    } else {
-      nice_debug_verbose ("%s: udp-bsd socket %p: error: %s", G_STRFUNC, sock,
+    } else if (nice_debug_is_verbose()) {
+      union {
+        struct sockaddr_storage ss;
+        struct sockaddr sa;
+      } sa;
+      GSocketAddress *gsocket;
+      NiceAddress local_addr;
+      NiceAddress remote_addr;
+      char remote_addr_str[INET6_ADDRSTRLEN];
+      char local_addr_str[INET6_ADDRSTRLEN];
+
+      g_socket_address_to_native (gaddr, &sa.sa, sizeof (sa), NULL);
+      nice_address_set_from_sockaddr (&remote_addr, &sa.sa);
+      nice_address_to_string (&remote_addr, remote_addr_str);
+
+      gsocket = g_socket_get_local_address (sock->fileno, NULL);
+      g_socket_address_to_native (gsocket, &sa.sa, sizeof (sa), NULL);
+      nice_address_set_from_sockaddr (&local_addr, &sa.sa);
+      nice_address_to_string (&local_addr, local_addr_str);
+      g_object_unref (gsocket);
+
+      nice_debug_verbose ("%s: udp-bsd socket %p %s:%u -> %s:%u: error: %s",
+          G_STRFUNC, sock,
+          local_addr_str, nice_address_get_port (&local_addr),
+          remote_addr_str, nice_address_get_port (&remote_addr),
           child_error->message);
     }
 
     g_error_free (child_error);
   }
+
+  g_clear_object (&gaddr);
 
   return len;
 }

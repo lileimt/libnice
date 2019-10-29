@@ -8,9 +8,6 @@
 
 include $(top_srcdir)/common.mk
 
-TESTS_ENVIRONMENT=\
-	GST_PLUGIN_PATH=${GST_PLUGIN_PATH}:$(top_builddir)/gst
-
 AM_CFLAGS = \
 	$(LIBNICE_CFLAGS) \
 	$(GLIB_CFLAGS) \
@@ -24,7 +21,8 @@ AM_CPPFLAGS = -DG_LOG_DOMAIN=\"libnice-tests\"
 
 AM_TESTS_ENVIRONMENT = \
 	G_MESSAGES_DEBUG=all \
-	NICE_DEBUG=all
+	NICE_DEBUG=all \
+	GST_PLUGIN_PATH=${GST_PLUGIN_PATH}:$(top_builddir)/gst
 
 COMMON_LDADD = $(top_builddir)/agent/libagent.la $(top_builddir)/socket/libsocket.la $(GLIB_LIBS) $(GUPNP_LIBS)
 
@@ -44,14 +42,15 @@ check_PROGRAMS = \
 	test-io-stream-pollable \
 	test-send-recv \
 	test-socket-is-based-on \
+	test-udp-turn-fragmentation \
 	test-priority \
 	test-fullmode \
         test-different-number-streams \
 	test-restart \
 	test-fallback \
 	test-thread \
-	test-dribble \
-	test-new-dribble \
+	test-trickle \
+	test-new-trickle \
 	test-tcp \
 	test-icetcp \
 	test-credentials \
@@ -109,9 +108,9 @@ test_send_recv_LDADD = $(COMMON_LDADD)
 
 test_socket_is_based_on_LDADD = $(COMMON_LDADD)
 
-test_priority_LDADD = $(COMMON_LDADD)
+test_udp_turn_fragmentation_LDADD = $(COMMON_LDADD)
 
-test_mainloop_LDADD = $(COMMON_LDADD)
+test_priority_LDADD = $(COMMON_LDADD)
 
 test_fullmode_LDADD = $(COMMON_LDADD)
 
@@ -121,9 +120,9 @@ test_restart_LDADD = $(COMMON_LDADD)
 
 test_fallback_LDADD = $(COMMON_LDADD)
 
-test_dribble_LDADD = $(COMMON_LDADD)
+test_trickle_LDADD = $(COMMON_LDADD)
 
-test_new_dribble_LDADD = $(COMMON_LDADD)
+test_new_trickle_LDADD = $(COMMON_LDADD)
 
 test_tcp_LDADD = $(COMMON_LDADD)
 
@@ -144,4 +143,6 @@ all-local:
 	chmod a+x $(srcdir)/check-test-fullmode-with-stun.sh
 	chmod a+x $(srcdir)/test-pseudotcp-random.sh
 
-EXTRA_DIST = libnice.supp
+EXTRA_DIST = \
+	libnice.supp \
+	meson.build
